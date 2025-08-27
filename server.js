@@ -1,131 +1,141 @@
 // server.js
-require('dotenv').config(); // Loads environment variables from a .env file
+require('dotenv').config();
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg'); // Import the pg library
 const cors = require('cors');
-// IMPORTANT: The secret key is now loaded securely from the .env file
-// It is no longer written directly in the code.
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
-// This is the critical fix for Render deployment
 const port = process.env.PORT || 3000;
-const host = '0.0.0.0'; // Listen on all available network interfaces
+const host = '0.0.0.0';
+const YOUR_DOMAIN = 'https://imagestock-shop.onrender.com';
 
-// This will be updated later with your live URL
-const YOUR_DOMAIN = 'http://localhost:3000';
+// --- Connect to PostgreSQL ---
+// The DATABASE_URL environment variable is provided by Render
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-// Serve static files from the current directory
 app.use(express.static('.'));
 
-// Initialize SQLite database
-const db = new sqlite3.Database('./photostock.db', (err) => {
-    if (err) {
-        console.error(err.message);
-    }
-    console.log('Connected to the photostock SQLite database.');
-});
+// --- Initialize Database Tables ---
+const initializeDatabase = async () => {
+    try {
+        // Create images table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS images (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                price NUMERIC(10, 2) NOT NULL,
+                url TEXT NOT NULL
+            );
+        `);
 
-// Create tables (no changes here)
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS images (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        price REAL NOT NULL,
-        url TEXT NOT NULL
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS sales (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        imageId INTEGER,
-        imageName TEXT NOT NULL,
-        price REAL NOT NULL,
-        buyerEmail TEXT NOT NULL,
-        purchaseTime TEXT NOT NULL,
-        transactionId TEXT NOT NULL
-    )`);
-});
-
-
-// --- API Endpoints ---
-
-// GET all images (no changes here)
-app.get('/api/images', (req, res) => {
-    db.all("SELECT * FROM images", [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ "error": err.message });
-            return;
+        // Create sales table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS sales (
+                id SERIAL PRIMARY KEY,
+                imageId INTEGER,
+                imageName TEXT NOT NULL,
+                price NUMERIC(10, 2) NOT NULL,
+                buyerEmail TEXT NOT NULL,
+                purchaseTime TIMESTAMPTZ NOT NULL,
+                transactionId TEXT NOT NULL
+            );
+        `);
+        
+        // Check if images table is empty and populate it
+        const res = await pool.query('SELECT COUNT(*) FROM images');
+        if (res.rows[0].count === '0') {
+            console.log("Populating images table with sample data...");
+            const sampleImages = [
+                { name: "Mountain Landscape", price: 10.00, url: "https://placehold.co/600x400/000000/FFFFFF?text=Mountain" },
+                { name: "City at Night", price: 12.50, url: "https://placehold.co/600x400/333333/FFFFFF?text=City" },
+                { name: "Forest Path", price: 8.00, url: "https://placehold.co/600x400/228B22/FFFFFF?text=Forest" },
+                { name: "Ocean Waves", price: 15.00, url: "https://placehold.co/600x400/0000FF/FFFFFF?text=Ocean" }
+            ];
+            for (const img of sampleImages) {
+                await pool.query('INSERT INTO images (name, price, url) VALUES ($1, $2, $3)', [img.name, img.price, img.url]);
+            }
         }
-        res.json({ data: rows });
-    });
+        console.log('Database tables are ready.');
+    } catch (err) {
+        console.error('Error initializing database:', err);
+    }
+};
+
+
+// --- API Endpoints (Updated for PostgreSQL) ---
+
+// GET all images
+app.get('/api/images', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM images");
+        res.json({ data: result.rows });
+    } catch (err) {
+        res.status(500).json({ "error": err.message });
+    }
 });
 
-// --- Create a Stripe Checkout Session ---
+// Create a Stripe Checkout Session
 app.post('/api/create-checkout-session', async (req, res) => {
     const { imageId, buyerEmail } = req.body;
-
-    db.get("SELECT * FROM images WHERE id = ?", [imageId], async (err, image) => {
-        if (err || !image) {
+    try {
+        const imageResult = await pool.query("SELECT * FROM images WHERE id = $1", [imageId]);
+        if (imageResult.rows.length === 0) {
             return res.status(404).json({ error: "Image not found." });
         }
+        const image = imageResult.rows[0];
 
-        try {
-            const session = await stripe.checkout.sessions.create({
-                payment_method_types: ['card'],
-                customer_email: buyerEmail,
-                line_items: [
-                    {
-                        price_data: {
-                            currency: 'usd',
-                            product_data: {
-                                name: image.name,
-                                images: [image.url],
-                            },
-                            unit_amount: Math.round(image.price * 100),
-                        },
-                        quantity: 1,
-                    },
-                ],
-                mode: 'payment',
-                metadata: {
-                    imageId: image.id,
-                    imageName: image.name,
-                    price: image.price
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            customer_email: buyerEmail,
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: { name: image.name, images: [image.url] },
+                    unit_amount: Math.round(image.price * 100),
                 },
-                success_url: `${YOUR_DOMAIN}/success.html?session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${YOUR_DOMAIN}/index.html`,
-            });
-            res.json({ id: session.id });
-        } catch (e) {
-            res.status(500).json({ error: e.message });
-        }
-    });
+                quantity: 1,
+            }],
+            mode: 'payment',
+            metadata: { imageId: image.id, imageName: image.name, price: image.price },
+            success_url: `${YOUR_DOMAIN}/success.html?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${YOUR_DOMAIN}/index.html`,
+        });
+        res.json({ id: session.id });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
-// --- Fulfill the order after successful payment ---
+// Fulfill the order after successful payment
 app.post('/api/fulfill-order', async (req, res) => {
     const { sessionId } = req.body;
     try {
         const session = await stripe.checkout.sessions.retrieve(sessionId);
-
         if (session.payment_status === 'paid') {
             const { imageId, imageName, price } = session.metadata;
             const buyerEmail = session.customer_details.email;
             const transactionId = session.payment_intent;
-            const purchaseTime = new Date().toISOString();
-            const sql = `INSERT INTO sales (imageId, imageName, price, buyerEmail, purchaseTime, transactionId) VALUES (?, ?, ?, ?, ?, ?)`;
-            db.run(sql, [imageId, imageName, parseFloat(price), buyerEmail, purchaseTime, transactionId]);
-            
-            db.get("SELECT url FROM images WHERE id = ?", [imageId], (err, image) => {
-                 if (err || !image) {
-                    return res.status(404).json({ error: "Image not found for fulfillment." });
-                }
-                res.json({ success: true, downloadUrl: image.url, imageName: imageName });
-            });
+            const purchaseTime = new Date();
 
+            await pool.query(
+                `INSERT INTO sales (imageId, imageName, price, buyerEmail, purchaseTime, transactionId) VALUES ($1, $2, $3, $4, $5, $6)`,
+                [imageId, imageName, parseFloat(price), buyerEmail, purchaseTime, transactionId]
+            );
+
+            const imageResult = await pool.query("SELECT url FROM images WHERE id = $1", [imageId]);
+            if (imageResult.rows.length === 0) {
+                return res.status(404).json({ error: "Image not found for fulfillment." });
+            }
+            res.json({ success: true, downloadUrl: imageResult.rows[0].url, imageName: imageName });
         } else {
             res.status(400).json({ success: false, message: 'Payment not successful.' });
         }
@@ -134,21 +144,18 @@ app.post('/api/fulfill-order', async (req, res) => {
     }
 });
 
-
-// GET all sales (no changes here)
-app.get('/api/sales', (req, res) => {
-    const sql = "SELECT * FROM sales ORDER BY purchaseTime DESC";
-    db.all(sql, [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ "error": err.message });
-            return;
-        }
-        res.json({ data: rows });
-    });
+// GET all sales
+app.get('/api/sales', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM sales ORDER BY purchaseTime DESC");
+        res.json({ data: result.rows });
+    } catch (err) {
+        res.status(500).json({ "error": err.message });
+    }
 });
 
 // Start the server
-// This is the second critical fix for Render
 app.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}`);
+    initializeDatabase(); // Initialize the database when the server starts
 });
