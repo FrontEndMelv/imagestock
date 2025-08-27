@@ -47,7 +47,6 @@
     <!-- Client-side Script -->
     <script>
         const salesTableBody = document.getElementById('sales-table-body');
-        // THIS LINE IS NOW CORRECTED
         const API_URL = 'https://imagestock-shop.onrender.com';
 
         async function loadSales() {
@@ -56,7 +55,7 @@
                 const result = await response.json();
                 const sales = result.data;
 
-                salesTableBody.innerHTML = ''; // Clear existing rows
+                salesTableBody.innerHTML = '';
                 if (!sales || sales.length === 0) {
                     salesTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-8 text-gray-500">No sales have been made yet.</td></tr>';
                     return;
@@ -65,13 +64,13 @@
                 sales.forEach((sale) => {
                     const tr = document.createElement('tr');
                     tr.className = 'bg-white border-b hover:bg-gray-50';
-                    const purchaseDate = new Date(sale.purchaseTime).toLocaleString();
+                    const purchaseDate = new Date(sale.purchasetime).toLocaleString();
 
                     tr.innerHTML = `
-                        <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${sale.transactionId}</td>
-                        <td class="px-6 py-4">${sale.imageName}</td>
-                        <td class="px-6 py-4">${sale.buyerEmail}</td>
-                        <td class="px-6 py-4">$${sale.price.toFixed(2)}</td>
+                        <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${sale.transactionid}</td>
+                        <td class="px-6 py-4">${sale.imagename}</td>
+                        <td class="px-6 py-4">${sale.buyeremail}</td>
+                        <td class="px-6 py-4">$${sale.price}</td>
                         <td class="px-6 py-4">${purchaseDate}</td>
                     `;
                     salesTableBody.appendChild(tr);
