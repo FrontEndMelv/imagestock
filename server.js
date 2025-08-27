@@ -7,7 +7,7 @@ const cors = require('cors');
 const stripe = require('stripe')('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');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 const YOUR_DOMAIN = 'https://trendstock-shop.onrender.com'; // Change this if you deploy
 
 // Middleware
@@ -175,3 +175,4 @@ app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
 
 });
+
