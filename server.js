@@ -1,7 +1,7 @@
 // server.js
 require('dotenv').config();
 const express = require('express');
-const { Pool } = require('pg'); // Import the pg library
+const { Pool } = require('pg'); // Use the pg library for PostgreSQL
 const cors = require('cors');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -11,7 +11,7 @@ const host = '0.0.0.0';
 const YOUR_DOMAIN = 'https://imagestock-shop.onrender.com';
 
 // --- Connect to PostgreSQL ---
-// The DATABASE_URL environment variable is provided by Render
+// The DATABASE_URL is provided by Render as an environment variable
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -50,15 +50,15 @@ const initializeDatabase = async () => {
             );
         `);
         
-        // Check if images table is empty and populate it
+        // Check if images table is empty and populate it with sample data
         const res = await pool.query('SELECT COUNT(*) FROM images');
         if (res.rows[0].count === '0') {
-            console.log("Populating images table with sample data...");
+            console.log("Database is empty. Populating images table with sample data...");
+            // NOTE: In a real application, you would add your own images via DBeaver.
+            // These are just placeholders so the site isn't empty on first deploy.
             const sampleImages = [
-                { name: "Mountain Landscape", price: 10.00, url: "https://placehold.co/600x400/000000/FFFFFF?text=Mountain" },
-                { name: "City at Night", price: 12.50, url: "https://placehold.co/600x400/333333/FFFFFF?text=City" },
-                { name: "Forest Path", price: 8.00, url: "https://placehold.co/600x400/228B22/FFFFFF?text=Forest" },
-                { name: "Ocean Waves", price: 15.00, url: "https://placehold.co/600x400/0000FF/FFFFFF?text=Ocean" }
+                { name: "Sample: Mountain", price: 10.00, url: "https://placehold.co/600x400/000000/FFFFFF?text=Mountain" },
+                { name: "Sample: City", price: 12.50, url: "https://placehold.co/600x400/333333/FFFFFF?text=City" }
             ];
             for (const img of sampleImages) {
                 await pool.query('INSERT INTO images (name, price, url) VALUES ($1, $2, $3)', [img.name, img.price, img.url]);
