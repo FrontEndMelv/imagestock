@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PhotoStock - Sell Your Images</title>
-    <script src="https://js.stripe.com/v3/"></script> <!-- Stripe.js Script -->
+    <script src="https://js.stripe.com/v3/"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -59,8 +59,6 @@
                     <canvas id="modal-canvas" class="w-full h-auto rounded-lg"></canvas>
                     <p class="text-lg font-semibold mt-4" id="modal-price"></p>
                     <p class="text-gray-600 mt-1">You will be redirected to our secure payment partner, Stripe, to complete your purchase.</p>
-                    
-                    <!-- Simplified Form -->
                     <div class="mt-6">
                          <label for="email" class="block text-sm font-medium text-gray-700">Enter your email for receipt</label>
                          <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="you@example.com" required>
@@ -84,17 +82,14 @@
 
     <!-- Client-side Script -->
     <script>
-        // IMPORTANT: Add your Stripe publishable key here
         const stripe = Stripe('YOUR_STRIPE_PUBLISHABLE_KEY');
         const gallery = document.getElementById('image-gallery');
         const modal = document.getElementById('purchase-modal');
         const closeModalBtn = document.getElementById('close-modal');
         const purchaseBtn = document.getElementById('purchase-button');
         let selectedImage = null;
-        // THIS LINE IS NOW CORRECTED
         const API_URL = 'https://imagestock-shop.onrender.com';
 
-        // --- Watermarking Function (no changes) ---
         function drawWatermarkedImage(imgData, container) {
             const { id, url, name, price } = imgData;
             const imageCard = document.createElement('div');
@@ -117,14 +112,13 @@
             };
             const infoDiv = document.createElement('div');
             infoDiv.className = 'p-4';
-            infoDiv.innerHTML = `<h3 class="font-bold text-lg text-gray-800">${name}</h3><p class="text-indigo-600 font-semibold mt-1">$${price.toFixed(2)}</p>`;
+            infoDiv.innerHTML = `<h3 class="font-bold text-lg text-gray-800">${name}</h3><p class="text-indigo-600 font-semibold mt-1">$${price}</p>`;
             imageCard.appendChild(canvas);
             imageCard.appendChild(infoDiv);
             container.appendChild(imageCard);
             canvas.addEventListener('click', () => openPurchaseModal({ id, src: url, title: name, price }));
         }
         
-        // --- Fetch and Display Images (no changes) ---
         async function loadImages() {
             try {
                 const response = await fetch(`${API_URL}/api/images`);
@@ -146,11 +140,10 @@
             }
         }
 
-        // --- Modal Logic (no changes) ---
         function openPurchaseModal(image) {
             selectedImage = image;
             document.getElementById('modal-title').innerText = `Purchase: ${image.title}`;
-            document.getElementById('modal-price').innerText = `$${image.price.toFixed(2)}`;
+            document.getElementById('modal-price').innerText = `$${parseFloat(image.price).toFixed(2)}`;
             const modalCanvas = document.getElementById('modal-canvas');
             const ctx = modalCanvas.getContext('2d');
             const img = new Image();
@@ -178,7 +171,6 @@
             if (e.target === modal) closeModal();
         });
 
-        // --- UPDATED: Purchase Logic ---
         purchaseBtn.addEventListener('click', async () => {
             const emailInput = document.getElementById('email');
             const email = emailInput.value;
@@ -192,7 +184,6 @@
             purchaseBtn.disabled = true;
             purchaseBtn.innerText = 'Redirecting...';
 
-            // 1. Create a checkout session on our server
             const response = await fetch(`${API_URL}/api/create-checkout-session`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -200,7 +191,6 @@
             });
             const session = await response.json();
 
-            // 2. Redirect to Stripe Checkout
             const result = await stripe.redirectToCheckout({
                 sessionId: session.id
             });
