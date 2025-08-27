@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg'); // Use the pg library for PostgreSQL
 const cors = require('cors');
+const utils = require('./utils.js');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
@@ -135,7 +136,10 @@ app.post('/api/fulfill-order', async (req, res) => {
             if (imageResult.rows.length === 0) {
                 return res.status(404).json({ error: "Image not found for fulfillment." });
             }
-            res.json({ success: true, downloadUrl: imageResult.rows[0].url, imageName: imageName });
+
+            const signedUrl = utils.generateSignedUrl(`${YOUR_DOMAIN}/api/download/${imageId}?tx=${transactionId}`, 900);
+
+            res.json({ success: true, downloadUrl: signedUrl, imageName: imageName });
         } else {
             res.status(400).json({ success: false, message: 'Payment not successful.' });
         }
@@ -151,6 +155,57 @@ app.get('/api/sales', async (req, res) => {
         res.json({ data: result.rows });
     } catch (err) {
         res.status(500).json({ "error": err.message });
+    }
+});
+
+app.get('/api/download/:id', async (req, res) => {
+    const imageId = req.params.id;
+    const transactionId = req.query.tx; // passed as ?tx=abc123
+
+    if (!transactionId) {
+        return res.status(401).json({ error: "Missing transaction token" });
+    }
+
+    // Verify signature & expiry
+    if (!utils.verifySignedUrl(req.originalUrl)) {
+        return res.status(403).json({ error: "Invalid or expired link" });
+    }
+
+
+    try {
+        // Verify sale exists for this image & transaction
+        const saleResult = await pool.query(
+            "SELECT * FROM sales WHERE imageid = $1 AND transactionid = $2",
+            [imageId, transactionId]
+        );
+
+        if (saleResult.rows.length === 0) {
+            return res.status(403).json({ error: "Unauthorized download" });
+        }
+
+        // Fetch image
+        const imageResult = await pool.query("SELECT * FROM images WHERE id = $1", [imageId]);
+        if (imageResult.rows.length === 0) {
+            return res.status(404).json({ error: "Image not found" });
+        }
+        const image = imageResult.rows[0];
+
+        const response = await fetch(image.url);
+        if (!response.ok) {
+            return res.status(500).send("Failed to fetch file.");
+        }
+
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${image.name}"`
+        );
+        res.setHeader("Content-Type", response.headers.get("content-type") || "application/octet-stream");
+
+        response.body.pipe(res);
+
+    } catch (err) {
+        console.error("Download error:", err);
+        res.status(500).json({ error: err.message });
     }
 });
 
