@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+const crypto = require('crypto');
 
 /**
  * Generate a signed URL for secure temporary access.
@@ -6,7 +6,7 @@ import crypto from 'crypto';
  * @param {number} lifetime - Validity in seconds.
  * @returns {string} Signed URL with exp & sig query params appended.
  */
-export function generateSignedUrl(url, lifetime = 300) {
+function generateSignedUrl(url, lifetime = 300) {
     const expiry = Math.floor(Date.now() / 1000) + lifetime;
 
     // Append exp param
@@ -29,7 +29,7 @@ export function generateSignedUrl(url, lifetime = 300) {
  * @param {string} fullPath - The full path + query string from request.url
  * @returns {boolean} Whether signature and expiry are valid
  */
-export function verifySignedUrl(fullPath) {
+function verifySignedUrl(fullPath) {
     const parsed = new URL(fullPath);
 
     const exp = parseInt(parsed.searchParams.get("exp"), 10);
@@ -52,4 +52,9 @@ export function verifySignedUrl(fullPath) {
     } catch {
         return false;
     }
+}
+
+module.exports = {
+  generateSignedUrl,
+  verifySignedUrl
 }

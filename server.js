@@ -167,46 +167,41 @@ app.get('/api/download/:id', async (req, res) => {
     }
 
     // Verify signature & expiry
-    if (!utils.verifySignedUrl(req.originalUrl)) {
+    if (!utils.verifySignedUrl(`${YOUR_DOMAIN}${req.originalUrl}`)) {
         return res.status(403).json({ error: "Invalid or expired link" });
     }
 
+    // Verify sale exists for this image & transaction
+    const saleResult = await pool.query(
+        "SELECT * FROM sales WHERE imageid = $1 AND transactionid = $2",
+        [imageId, transactionId]
+    );
 
-    try {
-        // Verify sale exists for this image & transaction
-        const saleResult = await pool.query(
-            "SELECT * FROM sales WHERE imageid = $1 AND transactionid = $2",
-            [imageId, transactionId]
-        );
-
-        if (saleResult.rows.length === 0) {
-            return res.status(403).json({ error: "Unauthorized download" });
-        }
-
-        // Fetch image
-        const imageResult = await pool.query("SELECT * FROM images WHERE id = $1", [imageId]);
-        if (imageResult.rows.length === 0) {
-            return res.status(404).json({ error: "Image not found" });
-        }
-        const image = imageResult.rows[0];
-
-        const response = await fetch(image.url);
-        if (!response.ok) {
-            return res.status(500).send("Failed to fetch file.");
-        }
-
-        res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="${image.name}"`
-        );
-        res.setHeader("Content-Type", response.headers.get("content-type") || "application/octet-stream");
-
-        response.body.pipe(res);
-
-    } catch (err) {
-        console.error("Download error:", err);
-        res.status(500).json({ error: err.message });
+    if (saleResult.rows.length === 0) {
+        return res.status(403).json({ error: "Unauthorized download" });
     }
+
+    // Fetch image
+    const imageResult = await pool.query("SELECT * FROM images WHERE id = $1", [imageId]);
+    if (imageResult.rows.length === 0) {
+        return res.status(404).json({ error: "Image not found" });
+    }
+    const image = imageResult.rows[0];
+    fetch(image.url).then(({ body, headers }) => {
+      body.pipeTo(
+        new WritableStream({
+          start() {
+            headers.forEach((v, n) => res.setHeader(n, v));
+          },
+          write(chunk) {
+            res.write(chunk);
+          },
+          close() {
+            res.end();
+          },
+        })
+      );
+    });
 });
 
 // Start the server
