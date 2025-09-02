@@ -5,6 +5,7 @@ const { Pool } = require('pg'); // Use the pg library for PostgreSQL
 const cors = require('cors');
 const utils = require('./utils.js');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const sharp = require('sharp'); // <--- added for image processing
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -78,10 +79,71 @@ const initializeDatabase = async () => {
 app.get('/api/images', async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM images");
-        res.json({ data: result.rows });
+        // Return preview URLs instead of original stored URL
+        const rowsWithPreview = result.rows.map(r => ({
+            ...r,
+            url: `${YOUR_DOMAIN}/preview/${r.id}`
+        }));
+        res.json({ data: rowsWithPreview });
     } catch (err) {
         res.status(500).json({ "error": err.message });
     }
+});
+
+// Create a preview endpoint that downloads the original image, rescales and applies a centered translucent text watermark.
+// URL: GET /preview/:id
+app.get('/preview/:id', async (req, res) => {
+  const imageId = req.params.id;
+  try {
+    const imageResult = await pool.query("SELECT * FROM images WHERE id = $1", [imageId]);
+    if (imageResult.rows.length === 0) {
+      return res.status(404).json({ error: "Image not found." });
+    }
+    const image = imageResult.rows[0];
+
+    // Fetch the original image bytes
+    const fetchRes = await fetch(image.url);
+    if (!fetchRes.ok) {
+      return res.status(502).json({ error: "Failed to fetch remote image." });
+    }
+    const arrayBuffer = await fetchRes.arrayBuffer();
+    const inputBuffer = Buffer.from(arrayBuffer);
+
+    // Use sharp to resize (max width 1200) and composite an SVG watermark centered
+    const metadata = await sharp(inputBuffer).metadata();
+    const targetWidth = Math.min(metadata.width || 1200, 1200);
+
+    // Create an SVG watermark sized relative to the image width
+    const fontSize = Math.round(targetWidth / 8);
+    const svg = `
+      <svg width="${targetWidth}" height="${fontSize * 2}" xmlns="http://www.w3.org/2000/svg">
+        <style>
+          .title { fill: rgba(255,255,255,0.5); font-size: ${fontSize}px; font-weight: 700; font-family: Arial, sans-serif; }
+        </style>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" class="title">Watermark</text>
+      </svg>
+    `;
+
+    // Resize and composite watermark centered
+    const composited = await sharp(inputBuffer)
+      .resize({ width: targetWidth, withoutEnlargement: true })
+      .composite([{
+        input: Buffer.from(svg),
+        gravity: 'center'
+      }])
+      .toBuffer();
+
+    // Determine output mime type (preserve original format if possible)
+    const outFormat = (metadata.format === 'png' || metadata.format === 'webp' || metadata.format === 'jpeg') ? metadata.format : 'jpeg';
+    const contentType = outFormat === 'png' ? 'image/png' : 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=300'); // small cache for preview
+    return res.end(composited);
+  } catch (err) {
+    console.error('Error generating preview:', err);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // Create a Stripe Checkout Session
@@ -100,7 +162,11 @@ app.post('/api/create-checkout-session', async (req, res) => {
             line_items: [{
                 price_data: {
                     currency: 'usd',
-                    product_data: { name: image.name, images: [image.url] },
+                    product_data: { 
+                        name: image.name,
+                        // Use our preview endpoint so Stripe shows the watermarked/downsized preview
+                        images: [`${YOUR_DOMAIN}/preview/${image.id}`]
+                    },
                     unit_amount: Math.round(image.price * 100),
                 },
                 quantity: 1,

@@ -109,16 +109,15 @@
             const ctx = canvas.getContext('2d');
             const img = new Image();
             img.crossOrigin = "Anonymous";
-            img.src = url;
+
+            // Use server-side preview endpoint to render downsized + watermarked preview
+            img.src = `${API_URL}/preview/${id}`;
+
             img.onload = () => {
                 canvas.width = img.width;
                 canvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
-                ctx.font = `bold ${canvas.width / 10}px Arial`;
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('Watermark', canvas.width / 2, canvas.height / 2);
+                // client-side watermark is optional; preview endpoint already watermarks
             };
             const infoDiv = document.createElement('div');
             infoDiv.className = 'p-4';
@@ -126,7 +125,9 @@
             imageCard.appendChild(canvas);
             imageCard.appendChild(infoDiv);
             container.appendChild(imageCard);
-            canvas.addEventListener('click', () => openPurchaseModal({ id, src: url, title: name, price }));
+
+            // When clicked, open purchase modal. For the modal we also request the preview image
+            canvas.addEventListener('click', () => openPurchaseModal({ id, src: `${API_URL}/preview/${id}`, title: name, price }));
         }
         
         async function loadImages() {
@@ -158,16 +159,14 @@
             const ctx = modalCanvas.getContext('2d');
             const img = new Image();
             img.crossOrigin = "Anonymous";
+
+            // Use preview endpoint for modal preview as well (downsized + watermarked)
             img.src = image.src;
+
             img.onload = () => {
                 modalCanvas.width = img.width;
                 modalCanvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
-                ctx.font = `bold ${modalCanvas.width / 8}px Arial`;
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('Watermark', modalCanvas.width / 2, modalCanvas.height / 2);
             };
             modal.classList.remove('hidden');
             setTimeout(() => modal.querySelector('div > div').classList.remove('scale-95'), 10);
